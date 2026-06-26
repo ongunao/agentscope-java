@@ -4,7 +4,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <meta property="article:modified_time" content="2026-06-02T16:19:40+00:00" /><link rel="index" title="Index" href="../../../../genindex.html"><link rel="search" title="Search" href="../../../../search.html"><link rel="next" title="Permission System" href="permission-system.html"><link rel="prev" title="Middleware" href="middleware.html">
+    <meta property="article:modified_time" content="2026-06-25T16:04:46+00:00" /><link rel="index" title="Index" href="../../../../genindex.html"><link rel="search" title="Search" href="../../../../search.html"><link rel="next" title="Permission System" href="permission-system.html"><link rel="prev" title="Middleware" href="middleware.html">
         <link rel="canonical" href="https://java.agentscope.io/v2/en/docs/building-blocks/model.html">
         <link rel="prefetch" href="../../../../_static/logo.svg" as="image">
 
@@ -955,7 +955,7 @@
 </tbody>
 </table>
 </div>
-<p>Credential classes (<code class="docutils literal notranslate"><span class="pre">io.agentscope.core.credential</span></code>): <code class="docutils literal notranslate"><span class="pre">OpenAICredential</span></code>, <code class="docutils literal notranslate"><span class="pre">AnthropicCredential</span></code>, <code class="docutils literal notranslate"><span class="pre">DashScopeCredential</span></code>, <code class="docutils literal notranslate"><span class="pre">GeminiCredential</span></code>, <code class="docutils literal notranslate"><span class="pre">OllamaCredential</span></code>, <code class="docutils literal notranslate"><span class="pre">DeepSeekCredential</span></code>, <code class="docutils literal notranslate"><span class="pre">KimiCredential</span></code>, <code class="docutils literal notranslate"><span class="pre">XAICredential</span></code>.</p>
+<p>Credential classes: <code class="docutils literal notranslate"><span class="pre">OpenAICredential</span></code>, <code class="docutils literal notranslate"><span class="pre">AnthropicCredential</span></code>, <code class="docutils literal notranslate"><span class="pre">DashScopeCredential</span></code>, <code class="docutils literal notranslate"><span class="pre">GeminiCredential</span></code>, <code class="docutils literal notranslate"><span class="pre">OllamaCredential</span></code>, <code class="docutils literal notranslate"><span class="pre">DeepSeekCredential</span></code>, <code class="docutils literal notranslate"><span class="pre">KimiCredential</span></code>, <code class="docutils literal notranslate"><span class="pre">XAICredential</span></code>.</p>
 <section id="creating-a-chat-model">
 <h3>Creating a chat model<a class="headerlink" href="#creating-a-chat-model" title="Link to this heading">¶</a></h3>
 <p>Each chat model is built with a builder. The most common fields are <code class="docutils literal notranslate"><span class="pre">apiKey</span></code>, <code class="docutils literal notranslate"><span class="pre">modelName</span></code>, <code class="docutils literal notranslate"><span class="pre">stream</span></code>, <code class="docutils literal notranslate"><span class="pre">formatter</span></code>, <code class="docutils literal notranslate"><span class="pre">defaultOptions</span></code>. Three typical setups:</p>
@@ -1080,18 +1080,12 @@ Reasoning</label><div class="sd-tab-content docutils">
 <span class="w">                </span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">(</span><span class="k">new</span><span class="w"> </span><span class="n">UserMessage</span><span class="p">(</span><span class="s">&quot;Count from 1 to 5.&quot;</span><span class="p">)),</span>
 <span class="w">                </span><span class="cm">/* tools = */</span><span class="w"> </span><span class="n">List</span><span class="p">.</span><span class="na">of</span><span class="p">(),</span>
 <span class="w">                </span><span class="n">GenerateOptions</span><span class="p">.</span><span class="na">builder</span><span class="p">().</span><span class="na">build</span><span class="p">())</span>
-<span class="w">        </span><span class="p">.</span><span class="na">doOnNext</span><span class="p">(</span><span class="n">chunk</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="p">{</span>
-<span class="w">            </span><span class="c1">// chunk.isLast() == true marks the final accumulated content</span>
-<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">chunk</span><span class="p">.</span><span class="na">isLast</span><span class="p">())</span><span class="w"> </span><span class="p">{</span>
-<span class="w">                </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&quot;Final: &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">chunk</span><span class="p">.</span><span class="na">getContent</span><span class="p">());</span>
-<span class="w">            </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
-<span class="w">                </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&quot;Delta: &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">chunk</span><span class="p">.</span><span class="na">getContent</span><span class="p">());</span>
-<span class="w">            </span><span class="p">}</span>
-<span class="w">        </span><span class="p">})</span>
+<span class="w">        </span><span class="p">.</span><span class="na">doOnNext</span><span class="p">(</span><span class="n">chunk</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&quot;Chunk: &quot;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="n">chunk</span><span class="p">.</span><span class="na">getContent</span><span class="p">()))</span>
+<span class="w">        </span><span class="p">.</span><span class="na">doOnComplete</span><span class="p">(()</span><span class="w"> </span><span class="o">-&gt;</span><span class="w"> </span><span class="n">System</span><span class="p">.</span><span class="na">out</span><span class="p">.</span><span class="na">println</span><span class="p">(</span><span class="s">&quot;Stream completed&quot;</span><span class="p">))</span>
 <span class="w">        </span><span class="p">.</span><span class="na">blockLast</span><span class="p">();</span>
 </pre></div>
 </div>
-<p>A <code class="docutils literal notranslate"><span class="pre">ChatResponse</span></code> carries a list of content blocks (<code class="docutils literal notranslate"><span class="pre">TextBlock</span></code>, <code class="docutils literal notranslate"><span class="pre">ThinkingBlock</span></code>, <code class="docutils literal notranslate"><span class="pre">ToolUseBlock</span></code>, <code class="docutils literal notranslate"><span class="pre">DataBlock</span></code>), an <code class="docutils literal notranslate"><span class="pre">isLast()</span></code> flag, and a <code class="docutils literal notranslate"><span class="pre">ChatUsage</span></code> recording token counts and timing.</p>
+<p>A <code class="docutils literal notranslate"><span class="pre">ChatResponse</span></code> carries a list of content blocks (<code class="docutils literal notranslate"><span class="pre">TextBlock</span></code>, <code class="docutils literal notranslate"><span class="pre">ThinkingBlock</span></code>, <code class="docutils literal notranslate"><span class="pre">ToolUseBlock</span></code>, <code class="docutils literal notranslate"><span class="pre">DataBlock</span></code>) and a <code class="docutils literal notranslate"><span class="pre">ChatUsage</span></code> recording token counts and timing.</p>
 <p>In practice you usually call models indirectly via <code class="docutils literal notranslate"><span class="pre">ReActAgent</span></code>. For lightweight direct invocation, see <code class="docutils literal notranslate"><span class="pre">agentscope-examples/documentation/.../model/ModelRegistryExample.java</span></code>.</p>
 </section>
 <section id="generating-structured-output">
@@ -1120,6 +1114,19 @@ Reasoning</label><div class="sd-tab-content docutils">
 </pre></div>
 </div>
 <p>How it works: the framework synthesizes a forced structured tool call from the target class, validates and repairs the model output, and writes the result into <code class="docutils literal notranslate"><span class="pre">Msg.metadata</span></code> under the <code class="docutils literal notranslate"><span class="pre">structured_output</span></code> key, so <code class="docutils literal notranslate"><span class="pre">getStructuredData(Class)</span></code> can deserialize it directly. Complete example: <code class="docutils literal notranslate"><span class="pre">agentscope-examples/documentation/.../structuredoutput/StructuredOutputExample.java</span></code>.</p>
+<blockquote>
+<div><p><strong>Structured output with tool calling</strong></p>
+<p>When an agent has both tools and structured output, some OpenAI-compatible providers (e.g. Kimi, Deepseek) prioritise the <code class="docutils literal notranslate"><span class="pre">response_format</span></code> constraint and skip tool calling entirely. If you encounter this, set <code class="docutils literal notranslate"><span class="pre">nativeStructuredOutputWithTools(false)</span></code> when building the model — the framework will use a synthetic tool approach for structured output, fully compatible with the ReAct tool-calling loop:</p>
+<div class="highlight-java notranslate"><div class="highlight"><pre><span></span><span class="n">OpenAIChatModel</span><span class="w"> </span><span class="n">model</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">OpenAIChatModel</span><span class="p">.</span><span class="na">builder</span><span class="p">()</span>
+<span class="w">        </span><span class="p">.</span><span class="na">apiKey</span><span class="p">(</span><span class="s">&quot;...&quot;</span><span class="p">)</span>
+<span class="w">        </span><span class="p">.</span><span class="na">baseUrl</span><span class="p">(</span><span class="s">&quot;https://api.moonshot.cn/v1&quot;</span><span class="p">)</span>
+<span class="w">        </span><span class="p">.</span><span class="na">modelName</span><span class="p">(</span><span class="s">&quot;moonshot-v1-8k&quot;</span><span class="p">)</span>
+<span class="w">        </span><span class="p">.</span><span class="na">nativeStructuredOutputWithTools</span><span class="p">(</span><span class="kc">false</span><span class="p">)</span>
+<span class="w">        </span><span class="p">.</span><span class="na">build</span><span class="p">();</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">DashScopeChatModel</span></code> supports this option as well. For native OpenAI models (GPT-4o, etc.) the default behavior handles both correctly — no configuration needed.</p>
+</div></blockquote>
 </section>
 <section id="formatter">
 <h3>Formatter<a class="headerlink" href="#formatter" title="Link to this heading">¶</a></h3>
@@ -1387,7 +1394,7 @@ Reasoning</label><div class="sd-tab-content docutils">
             Made with 
             <a href="https://github.com/pradyunsg/furo">Furo</a>
             <div class="last-updated">
-              Last updated on 2026-06-02</div>
+              Last updated on 2026-06-25</div>
           </div>
           <div class="right-details">
             <div class="icons">

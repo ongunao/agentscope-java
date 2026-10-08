@@ -124,3 +124,5 @@ agentscope-service/.dev-stack/
 # Mintlify documentation dependencies and local preview
 /docs/node_modules/
 /docs/.mintlify/
+# Added by code-review-graph
+.code-review-graph/

@@ -86,6 +86,7 @@ import io.agentscope.core.message.ToolResultState;
 import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.message.UserMessage;
 import io.agentscope.core.middleware.ActingInput;
+import io.agentscope.core.middleware.ActivePointsResolver;
 import io.agentscope.core.middleware.AgentInput;
 import io.agentscope.core.middleware.MiddlewareBase;
 import io.agentscope.core.middleware.MiddlewareChain;
@@ -157,10 +158,7 @@ import io.agentscope.core.util.JsonUtils;
 import io.agentscope.core.util.MessageUtils;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
-import java.util.EnumMap;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -444,7 +442,7 @@ public class ReActAgent extends AgentBase implements AutoCloseable {
         this.middlewares = List.copyOf(mws);
         this.modelRequestPreparer = builder.modelRequestPreparer;
         this.actionObserver = builder.actionObserver;
-        this.groupedMiddlewares = groupMiddlewares(this.middlewares);
+        this.groupedMiddlewares = ActivePointsResolver.groupByPoint(this.middlewares);
 
         this.stateStore = builder.stateStore;
         this.sessionLogStore = builder.sessionLogStore;
@@ -502,20 +500,15 @@ public class ReActAgent extends AgentBase implements AutoCloseable {
     /**
      * Internal slot identifier — {@code (userId or "__anon__") + "/" + sessionId}.
      * Not part of the public API.
+     *
+     * <p>The key is opaque: it keys the per-slot caches, same-slot call serialization and interrupt
+     * routing. It must never be split back into {@code (userId, sessionId)}, because a sessionId
+     * may itself contain {@code '/'} (e.g. Base64 DingTalk conversation ids). Per-call code reads
+     * the identity from {@code CallExecution.userId} / {@code CallExecution.sessionId} instead.
      */
     private static String slotKey(String userId, String sessionId) {
         Objects.requireNonNull(sessionId, "sessionId must not be null");
         return (userId == null || userId.isBlank() ? "__anon__" : userId) + "/" + sessionId;
-    }
-
-    /** Reverse of {@link #slotKey}: the parsed {@code (userId, sessionId)} pair. */
-    private record SlotRef(String userId, String sessionId) {
-        static SlotRef parse(String slotKey) {
-            int slash = slotKey.lastIndexOf('/');
-            String u = slotKey.substring(0, slash);
-            String s = slotKey.substring(slash + 1);
-            return new SlotRef("__anon__".equals(u) ? null : u, s);
-        }
     }
 
     /**
@@ -582,7 +575,6 @@ public class ReActAgent extends AgentBase implements AutoCloseable {
         if (stateStore == null) {
             return Mono.empty();
         }
-        SlotRef ref = SlotRef.parse(scope.slotKey);
         AgentState toSave = scope.state;
         return Mono.<Void>fromRunnable(
                         () -> {
@@ -593,10 +585,11 @@ public class ReActAgent extends AgentBase implements AutoCloseable {
                                 return;
                             }
                             try {
+                                // Save under the exact identity this call loaded the state with.
                                 long newVersion =
                                         persistAgentStateCas(
-                                                ref.userId,
-                                                ref.sessionId,
+                                                scope.userId,
+                                                scope.sessionId,
                                                 scope.slotKey,
                                                 toSave,
                                                 scope.loadedVersion,
@@ -840,7 +833,7 @@ public class ReActAgent extends AgentBase implements AutoCloseable {
                     permissionEngineCache.computeIfAbsent(
                             slot, k -> new PermissionEngine(effectivePermissionContext));
         }
-        return new CallExecution(loaded, loadedEngine, slot, loadedVersion);
+        return new CallExecution(loaded, loadedEngine, finalUid, finalSid, loadedVersion);
     }
 
     // ==================== Config assembly helpers ====================
@@ -1124,25 +1117,6 @@ public class ReActAgent extends AgentBase implements AutoCloseable {
     @Override
     protected AgentState stateForCall(Object callScope) {
         return callScope instanceof CallExecution ce ? ce.state : getAgentState();
-    }
-
-    /** Groups middlewares per extension point; {@code null} declarations count as full set. */
-    private static Map<MiddlewareBase.ExtensionPoint, List<MiddlewareBase>> groupMiddlewares(
-            List<MiddlewareBase> middlewares) {
-        Map<MiddlewareBase.ExtensionPoint, List<MiddlewareBase>> grouped =
-                new EnumMap<>(MiddlewareBase.ExtensionPoint.class);
-        for (MiddlewareBase mw : middlewares) {
-            Set<MiddlewareBase.ExtensionPoint> active =
-                    Objects.requireNonNullElse(
-                            mw.activePoints(), EnumSet.allOf(MiddlewareBase.ExtensionPoint.class));
-            for (MiddlewareBase.ExtensionPoint point : MiddlewareBase.ExtensionPoint.values()) {
-                if (active.contains(point)) {
-                    grouped.computeIfAbsent(point, p -> new ArrayList<>()).add(mw);
-                }
-            }
-        }
-        grouped.replaceAll((point, participants) -> List.copyOf(participants));
-        return Collections.unmodifiableMap(grouped);
     }
 
     /**
@@ -1923,7 +1897,44 @@ public class ReActAgent extends AgentBase implements AutoCloseable {
         for (Msg msg : original) {
             if (!isStructuredOutputRelated(msg)) {
                 contextMutable.add(msg);
+                continue;
             }
+            if (Boolean.TRUE.equals(
+                    msg.getMetadata().get(MessageMetadataKeys.STRUCTURED_OUTPUT_REMINDER))) {
+                continue;
+            }
+            List<ContentBlock> retained =
+                    msg.getContent().stream()
+                            .filter(
+                                    block -> {
+                                        if (block instanceof ToolUseBlock use) {
+                                            return !STRUCTURED_OUTPUT_TOOL_NAME.equals(
+                                                    use.getName());
+                                        }
+                                        if (block instanceof ToolResultBlock result) {
+                                            return !STRUCTURED_OUTPUT_TOOL_NAME.equals(
+                                                    result.getName());
+                                        }
+                                        return true;
+                                    })
+                            .toList();
+            // Pure output messages keep the existing compression behavior. A mixed message
+            // must retain its business calls, otherwise their results become orphaned.
+            if (retained.stream().noneMatch(ToolUseBlock.class::isInstance)) {
+                continue;
+            }
+            // This usage has already been collected for the final structured result.
+            // Do not also charge it to the retained copy of the mixed message.
+            Map<String, Object> metadata = new HashMap<>(msg.getMetadata());
+            metadata.remove(MessageMetadataKeys.CHAT_USAGE);
+            contextMutable.add(
+                    Msg.builderForRole(msg.getRole())
+                            .id(msg.getId())
+                            .name(msg.getName())
+                            .content(retained)
+                            .metadata(metadata)
+                            .timestamp(msg.getTimestamp())
+                            .build());
         }
     }
 
@@ -2195,7 +2206,18 @@ public class ReActAgent extends AgentBase implements AutoCloseable {
         InterruptControl interruption = new InterruptControl();
         AgentState state;
         PermissionEngine permissionEngine;
-        String slotKey;
+
+        /**
+         * The {@code (userId, sessionId)} identity this call was resolved to. Per-call loads and
+         * saves use exactly this pair; it is never re-derived from {@link #slotKey}.
+         */
+        final String userId;
+
+        /** Session half of the call identity; see {@link #userId}. */
+        final String sessionId;
+
+        /** Opaque cache / serialization key derived from {@link #userId} and {@link #sessionId}. */
+        final String slotKey;
 
         /**
          * Store version observed when this call loaded {@link #state}. Used for CAS on save.
@@ -2321,18 +2343,17 @@ public class ReActAgent extends AgentBase implements AutoCloseable {
         /** Native structured-output format set on the per-call scope for native-path calls. */
         ResponseFormat nativeResponseFormat;
 
-        CallExecution(AgentState state, PermissionEngine permissionEngine, String slotKey) {
-            this(state, permissionEngine, slotKey, AgentStateStore.UNVERSIONED);
-        }
-
         CallExecution(
                 AgentState state,
                 PermissionEngine permissionEngine,
-                String slotKey,
+                String userId,
+                String sessionId,
                 long loadedVersion) {
             this.state = state;
             this.permissionEngine = permissionEngine;
-            this.slotKey = slotKey;
+            this.userId = userId;
+            this.sessionId = sessionId;
+            this.slotKey = slotKey(userId, sessionId);
             this.loadedVersion = loadedVersion;
             this.loadedContextSize = state != null ? state.getContext().size() : 0;
         }
@@ -2633,10 +2654,21 @@ public class ReActAgent extends AgentBase implements AutoCloseable {
                 if (r.isConfirmed()) {
                     replacements.put(target.getId(), target.withState(ToolCallState.ALLOWED));
                     if (r.getRules() != null) {
+                        List<PermissionRule> accepted = new ArrayList<>();
                         for (PermissionRule rule : r.getRules()) {
                             if (rule != null) {
                                 permissionEngine.addRule(rule);
+                                accepted.add(rule);
                             }
+                        }
+                        // Persist the accepted rules into the session state so
+                        // they survive the next call boundary: with a state
+                        // store configured, every call rebuilds the engine from
+                        // the stored permission context, so engine-only
+                        // additions are lost (issue #3369).
+                        if (!accepted.isEmpty()) {
+                            state.setPermissionContext(
+                                    state.getPermissionContext().withAddedRules(accepted));
                         }
                     }
                 } else {
@@ -3408,18 +3440,20 @@ public class ReActAgent extends AgentBase implements AutoCloseable {
                                                     parentCtx -> {
                                                         List<Msg> chunkMsgs =
                                                                 context.processChunk(chunk);
-                                                        for (Msg msg : chunkMsgs) {
-                                                            hookDispatcher
-                                                                    .fireReasoningChunk(
-                                                                            msg,
-                                                                            context,
-                                                                            mci.model()
-                                                                                    .getModelName())
-                                                                    .contextWrite(
-                                                                            ctx ->
-                                                                                    ctx.putAll(
-                                                                                            parentCtx))
-                                                                    .subscribe();
+                                                        if (hookDispatcher.hasHooks()) {
+                                                            for (Msg msg : chunkMsgs) {
+                                                                hookDispatcher
+                                                                        .fireReasoningChunk(
+                                                                                msg,
+                                                                                context,
+                                                                                mci.model()
+                                                                                        .getModelName())
+                                                                        .contextWrite(
+                                                                                ctx ->
+                                                                                        ctx.putAll(
+                                                                                                parentCtx))
+                                                                        .subscribe();
+                                                            }
                                                         }
 
                                                         List<AgentEvent> events = new ArrayList<>();
@@ -4881,19 +4915,21 @@ public class ReActAgent extends AgentBase implements AutoCloseable {
                                                     parentCtx -> {
                                                         List<Msg> chunkMsgs =
                                                                 context.processChunk(chunk);
-                                                        for (Msg msg : chunkMsgs) {
-                                                            hookDispatcher
-                                                                    .fireSummaryChunk(
-                                                                            msg,
-                                                                            context,
-                                                                            hookOptions,
-                                                                            mci.model()
-                                                                                    .getModelName())
-                                                                    .contextWrite(
-                                                                            ctx ->
-                                                                                    ctx.putAll(
-                                                                                            parentCtx))
-                                                                    .subscribe();
+                                                        if (hookDispatcher.hasHooks()) {
+                                                            for (Msg msg : chunkMsgs) {
+                                                                hookDispatcher
+                                                                        .fireSummaryChunk(
+                                                                                msg,
+                                                                                context,
+                                                                                hookOptions,
+                                                                                mci.model()
+                                                                                        .getModelName())
+                                                                        .contextWrite(
+                                                                                ctx ->
+                                                                                        ctx.putAll(
+                                                                                                parentCtx))
+                                                                        .subscribe();
+                                                            }
                                                         }
 
                                                         List<AgentEvent> events = new ArrayList<>();
